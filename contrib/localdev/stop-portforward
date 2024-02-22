@@ -1,7 +1,8 @@
 #!/bin/sh
 set -euo pipefail
 script_dir="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-source "${script_dir}"/common.sh
+log_dir="$HOME"/.hypershift
+mkdir -p "$log_dir" 2>/dev/null
 pidfile="${log_dir}/portfw.pid"
 if [[ -f ${pidfile} ]]; then 
 	echo "Stopping port forward"
