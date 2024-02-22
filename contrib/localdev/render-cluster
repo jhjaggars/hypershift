@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"

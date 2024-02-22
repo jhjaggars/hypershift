@@ -61,7 +61,7 @@ export KUBECONFIG=kind.kubeconfig
 ### Step 3: Run the HyperShift operator
 
 ```
-./contrib/localdev/run-operator
+./contrib/localdev/start-operator
 ```
 
 ### Step 4: Create a HostedCluster

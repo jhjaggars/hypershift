@@ -1,21 +1,21 @@
-#!/bin/bash
+#!/bin/sh
 set -euo pipefail
 script_dir="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-HYPERSHIFT_DIR=${HYPERSHIFT_DIR:-$script_dir/../..}
+source "${script_dir}"/common.sh
 
 export METRICS_SET="Telemetry"
 export MY_NAMESPACE=hypershift
 export MY_NAME=operator
 
-logfile="${script_dir}/operator.log"
-pidfile="${script_dir}/operator.pid"
+logfile="${log_dir}/operator.log"
+pidfile="${log_dir}/operator.pid"
 
 if [[ -f "${pidfile}" ]]; then
 	echo "Found existing operator pid, killing that first"
-	${script_dir}/stop-operator
+	"${script_dir}"/stop-operator
 fi
 
-${HYPERSHIFT_DIR}/bin/hypershift-operator \
+"${HYPERSHIFT_DIR}"/bin/hypershift-operator \
   run \
   --metrics-addr=0 \
   --enable-ocp-cluster-monitoring=false \
