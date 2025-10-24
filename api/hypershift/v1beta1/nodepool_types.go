@@ -436,7 +436,8 @@ type NodePoolAutoScaling struct {
 	// Can be set to 0 for scale-from-zero.
 	// Must be >= 0 and <= .Max.
 	//
-	// +kubebuilder:validation:Minimum=0
+	// +openshift:validation:FeatureGateAwareXValidation:featureGate="",rule="self >= 1",message="min must be greater than or equal to 1"
+	// +openshift:validation:FeatureGateAwareXValidation:featureGate=ScaleFromZero,rule="self >= 0",message="min must be 0 or greater"
 	// +required
 	Min int32 `json:"min"`
 

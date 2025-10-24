@@ -110,7 +110,6 @@ spec:
                       Can be set to 0 for scale-from-zero.
                       Must be >= 0 and <= .Max.
                     format: int32
-                    minimum: 0
                     type: integer
                 required:
                 - max
