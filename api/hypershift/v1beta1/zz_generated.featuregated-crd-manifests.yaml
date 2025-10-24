@@ -184,6 +184,7 @@ nodepools.hypershift.openshift.io:
   Category: ""
   FeatureGates:
   - OpenStack
+  - ScaleFromZero
   FilenameOperatorName: ""
   FilenameOperatorOrdering: ""
   FilenameRunLevel: ""

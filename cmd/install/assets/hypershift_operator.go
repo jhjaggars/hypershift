@@ -348,19 +348,28 @@ func (o MonitoringDashboardTemplate) Build() *corev1.ConfigMap {
 	}
 }
 
-type TechPreviewFeatureGateConfig struct {
-	Namespace          string
-	TechPreviewEnabled string
+type FeaturegGateConfig struct {
+	Namespace  string
+	FeatureSet string
 }
 
-func (o TechPreviewFeatureGateConfig) Build() *corev1.ConfigMap {
+func (o FeaturegGateConfig) Build() *corev1.ConfigMap {
+	techPreview := "false"
+	rosa := "false"
+	if o.FeatureSet == "TechPreviewNoUpgrade" {
+		techPreview = "true"
+	}
+	if o.FeatureSet == "ROSA" {
+		rosa = "true"
+	}
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "feature-gate",
 			Namespace: o.Namespace,
 		},
 		Data: map[string]string{
-			"TechPreviewEnabled": o.TechPreviewEnabled,
+			"TechPreviewEnabled": techPreview,
+			"ROSAEnabled":        rosa,
 		},
 	}
 }

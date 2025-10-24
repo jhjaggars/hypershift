@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -124,11 +123,15 @@ type Options struct {
 	EnableEtcdRecovery                        bool
 	EnableCPOOverrides                        bool
 	AroHCPKeyVaultUsersClientID               string
-	TechPreviewNoUpgrade                      bool
-	RegistryOverrides                         string
-	RenderNamespace                           bool
-	PlatformsToInstall                        []string
-	ImagePullPolicy                           string
+	// Deprecated: use FeatureSet instead. If set, maps to FeatureSet=TechPreviewNoUpgrade when FeatureSet is unset or Default.
+	TechPreviewNoUpgrade bool
+	// FeatureSet selects the set of CRDs to install by matching the CRD annotation release.openshift.io/feature-set.
+	// Valid values: "Default", "TechPreviewNoUpgrade", "ROSA".
+	FeatureSet         string
+	RegistryOverrides  string
+	RenderNamespace    bool
+	PlatformsToInstall []string
+	ImagePullPolicy    string
 }
 
 func (o *Options) Validate() error {
@@ -216,6 +219,15 @@ func (o *Options) ApplyDefaults() {
 	default:
 		o.HyperShiftOperatorReplicas = 1
 	}
+
+	// Default feature set to Default if unset
+	if len(o.FeatureSet) == 0 {
+		o.FeatureSet = "Default"
+	}
+	// Backward compat: if deprecated flag is set and feature set wasn't explicitly changed, map to TechPreviewNoUpgrade
+	if o.TechPreviewNoUpgrade && strings.EqualFold(o.FeatureSet, "Default") {
+		o.FeatureSet = "TechPreviewNoUpgrade"
+	}
 }
 
 func NewCommand() *cobra.Command {
@@ -272,9 +284,10 @@ func NewCommand() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&opts.EnableEtcdRecovery, "enable-etcd-recovery", opts.EnableEtcdRecovery, "If true, the HyperShift operator checks for failed etcd pods and attempts a recovery if possible")
 	cmd.PersistentFlags().BoolVar(&opts.EnableCPOOverrides, "enable-cpo-overrides", opts.EnableCPOOverrides, "If true, the HyperShift operator uses a set of static overrides for the CPO image given specific release versions")
 	cmd.PersistentFlags().StringVar(&opts.AroHCPKeyVaultUsersClientID, "aro-hcp-key-vault-users-client-id", opts.AroHCPKeyVaultUsersClientID, "The client ID of the managed identity which can access the Azure Key Vaults, in an AKS management cluster, to retrieve secrets and certificates.")
-	// TODO: Would it make sense to deprecate this flag in favor of a new flag like `--feature-set=TechPreviewNoUpgrade`
-	// and make it so that setting this flag is essentially equivalent to that?
-	cmd.PersistentFlags().BoolVar(&opts.TechPreviewNoUpgrade, "tech-preview-no-upgrade", opts.TechPreviewNoUpgrade, "If true, the HyperShift operator runs with TechPreviewNoUpgrade features enabled")
+	// Deprecated in favor of --feature-set. If set, it maps to --feature-set=TechPreviewNoUpgrade unless --feature-set is explicitly set.
+	cmd.PersistentFlags().BoolVar(&opts.TechPreviewNoUpgrade, "tech-preview-no-upgrade", opts.TechPreviewNoUpgrade, "DEPRECATED: use --feature-set=TechPreviewNoUpgrade")
+	_ = cmd.PersistentFlags().MarkDeprecated("tech-preview-no-upgrade", "use --feature-set=TechPreviewNoUpgrade instead")
+	cmd.PersistentFlags().StringVar(&opts.FeatureSet, "feature-set", opts.FeatureSet, "Feature set to install CRDs for. Valid values are: Default, TechPreviewNoUpgrade, ROSA")
 	cmd.PersistentFlags().StringVar(&opts.RegistryOverrides, "registry-overrides", "", "registry-overrides contains the source registry string as a key and the destination registry string as value. Images before being applied are scanned for the source registry string and if found the string is replaced with the destination registry string. Format is: sr1=dr1,sr2=dr2")
 	cmd.PersistentFlags().StringSliceVar(&opts.PlatformsToInstall, "limit-crd-install", opts.PlatformsToInstall, "Used to limit the CRDs that are installed to a per platform basis (example: --limit-crd-install=AWS,Azure). If this flag is not specified, all CRDs for all platforms will be installed. Valid, case-insensitive values are: AWS, Azure, IBMCloud, KubeVirt, Agent, OpenStack.")
 
@@ -347,6 +360,7 @@ func NewInstallOptionsWithDefaults() Options {
 	opts.OIDCStorageProviderS3CredentialsSecretKey = "credentials"
 	opts.PrivatePlatform = string(hyperv1.NonePlatform)
 	opts.ImagePullPolicy = "IfNotPresent"
+	opts.FeatureSet = "Default"
 
 	return opts
 }
@@ -597,12 +611,12 @@ func hyperShiftOperatorManifests(opts Options) ([]crclient.Object, []crclient.Ob
 	)
 	objects = append(objects, operatorObjs...)
 
-	// Setup feature gate tech preview ConfigMap
-	techPreviewCM := assets.TechPreviewFeatureGateConfig{
-		Namespace:          opts.Namespace,
-		TechPreviewEnabled: strconv.FormatBool(opts.TechPreviewNoUpgrade),
+	// Setup feature gate ConfigMap
+	featureGateCM := assets.FeaturegGateConfig{
+		Namespace:  opts.Namespace,
+		FeatureSet: opts.FeatureSet,
 	}.Build()
-	objects = append(objects, techPreviewCM)
+	objects = append(objects, featureGateCM)
 
 	// Setup Monitoring resources
 	monitoringObjs := setupMonitoring(opts, operatorNamespace)
@@ -652,19 +666,14 @@ func setupCRDs(opts Options, operatorNamespace *corev1.Namespace, operatorServic
 					if strings.Contains(path, "awsendpointservices") {
 						return isAWSPlatformEnabled(opts.PlatformsToInstall)
 					}
-					if opts.TechPreviewNoUpgrade {
-						// Skip all featureSets but TechPreviewNoUpgrade.
-						if featureSet, ok := crd.Annotations["release.openshift.io/feature-set"]; ok {
-							if featureSet != "TechPreviewNoUpgrade" {
-								return false
-							}
-						}
-					} else {
-						// Skip all featureSets but Default.
-						if featureSet, ok := crd.Annotations["release.openshift.io/feature-set"]; ok {
-							if featureSet != "Default" {
-								return false
-							}
+					selectedFeatureSet := opts.FeatureSet
+					if selectedFeatureSet == "" {
+						selectedFeatureSet = "Default"
+					}
+					// Filter CRDs by their feature set annotation matching the requested feature set.
+					if featureSet, ok := crd.Annotations["release.openshift.io/feature-set"]; ok {
+						if featureSet != selectedFeatureSet {
+							return false
 						}
 					}
 				}
