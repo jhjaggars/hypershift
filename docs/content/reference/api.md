@@ -5584,6 +5584,181 @@ and the user is responsible for doing so.</p>
 </td>
 </tr></tbody>
 </table>
+###EtcdShardPriority { #hypershift.openshift.io/v1beta1.EtcdShardPriority }
+<p>
+(<em>Appears on:</em>
+<a href="#hypershift.openshift.io/v1beta1.EtcdShardSpec">EtcdShardSpec</a>)
+</p>
+<p>
+<p>EtcdShardPriority defines the operational priority of an etcd shard.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr><td><p>&#34;Critical&#34;</p></td>
+<td><p>EtcdShardPriorityCritical for core cluster resources (pods, services, configmaps, secrets, etc.)</p>
+</td>
+</tr><tr><td><p>&#34;High&#34;</p></td>
+<td><p>EtcdShardPriorityHigh for important but less critical resources</p>
+</td>
+</tr><tr><td><p>&#34;Low&#34;</p></td>
+<td><p>EtcdShardPriorityLow for ephemeral resources like leases</p>
+</td>
+</tr><tr><td><p>&#34;Medium&#34;</p></td>
+<td><p>EtcdShardPriorityMedium for high-volume resources like events</p>
+</td>
+</tr></tbody>
+</table>
+###EtcdShardSpec { #hypershift.openshift.io/v1beta1.EtcdShardSpec }
+<p>
+(<em>Appears on:</em>
+<a href="#hypershift.openshift.io/v1beta1.EtcdShardingSpec">EtcdShardingSpec</a>)
+</p>
+<p>
+<p>EtcdShardSpec defines a single etcd shard and the resources it stores.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>name</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>name is the unique identifier for this shard (e.g., &ldquo;main&rdquo;, &ldquo;events&rdquo;, &ldquo;leases&rdquo;).
+This name will be used in etcd resource naming and must be DNS-1035 compliant.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>resourcePrefixes</code></br>
+<em>
+[]string
+</em>
+</td>
+<td>
+<p>resourcePrefixes specifies which Kubernetes resource kinds are stored in this shard.
+Each prefix follows the format used by kube-apiserver&rsquo;s &ndash;etcd-servers-overrides flag.
+Examples:
+- &ldquo;/events#&rdquo; for Event resources
+- &ldquo;/coordination.k8s.io/leases#&rdquo; for Lease resources
+- &ldquo;/deployments#&rdquo; for Deployment resources
+The special prefix &ldquo;/&rdquo; (default) matches all resources not explicitly assigned to other shards.
+Exactly one shard must use the default &ldquo;/&rdquo; prefix to catch unmatched resources.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>storage</code></br>
+<em>
+<a href="#hypershift.openshift.io/v1beta1.ManagedEtcdStorageSpec">
+ManagedEtcdStorageSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>storage defines the storage configuration for this etcd shard.
+If not specified, inherits from the parent ManagedEtcdSpec.Storage configuration.
+This allows per-shard customization of storage class, size, etc.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>replicas</code></br>
+<em>
+int32
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>replicas specifies the number of etcd replicas for this shard.
+Must be 1 or 3. Defaults to matching the HostedCluster&rsquo;s control plane availability.
+For high-churn shards (events, leases), a lower replica count may be acceptable.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>priority</code></br>
+<em>
+<a href="#hypershift.openshift.io/v1beta1.EtcdShardPriority">
+EtcdShardPriority
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>priority indicates the operational priority of this shard.
+Higher priority shards receive preferential treatment during:
+- Resource allocation
+- Monitoring and alerting thresholds
+- Backup schedules
+Valid values: Critical (default resources), High, Medium (events), Low (ephemeral data)</p>
+</td>
+</tr>
+</tbody>
+</table>
+###EtcdShardingSpec { #hypershift.openshift.io/v1beta1.EtcdShardingSpec }
+<p>
+(<em>Appears on:</em>
+<a href="#hypershift.openshift.io/v1beta1.ManagedEtcdSpec">ManagedEtcdSpec</a>)
+</p>
+<p>
+<p>EtcdShardingSpec configures sharding of Kubernetes resources across multiple etcd clusters.
+This enables horizontal scaling of etcd by partitioning resources by kind.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>enabled</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<p>enabled determines whether etcd sharding is active for this hosted cluster.
+When enabled, Kubernetes resources will be distributed across multiple etcd deployments
+based on the shard configuration.
+This field is immutable after cluster creation.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>shards</code></br>
+<em>
+<a href="#hypershift.openshift.io/v1beta1.EtcdShardSpec">
+[]EtcdShardSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>shards defines the individual etcd shards and their resource mappings.
+Each shard represents an independent etcd cluster responsible for storing
+a specific set of Kubernetes resource kinds.</p>
+</td>
+</tr>
+</tbody>
+</table>
 ###EtcdSpec { #hypershift.openshift.io/v1beta1.EtcdSpec }
 <p>
 (<em>Appears on:</em>
@@ -9329,11 +9504,30 @@ ManagedEtcdStorageSpec
 <p>storage specifies how etcd data is persisted.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>sharding</code></br>
+<em>
+<a href="#hypershift.openshift.io/v1beta1.EtcdShardingSpec">
+EtcdShardingSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>sharding specifies the configuration for etcd sharding across multiple etcd clusters.
+When specified, multiple etcd StatefulSets will be created, each serving as a separate shard.
+This enables horizontal scaling of etcd by distributing load across multiple independent clusters.
+The kube-apiserver will be configured to connect to all shards for high availability.
+This field is immutable once set.</p>
+</td>
+</tr>
 </tbody>
 </table>
 ###ManagedEtcdStorageSpec { #hypershift.openshift.io/v1beta1.ManagedEtcdStorageSpec }
 <p>
 (<em>Appears on:</em>
+<a href="#hypershift.openshift.io/v1beta1.EtcdShardSpec">EtcdShardSpec</a>, 
 <a href="#hypershift.openshift.io/v1beta1.ManagedEtcdSpec">ManagedEtcdSpec</a>)
 </p>
 <p>

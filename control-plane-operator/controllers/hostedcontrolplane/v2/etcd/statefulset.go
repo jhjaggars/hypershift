@@ -17,8 +17,20 @@ import (
 )
 
 func adaptStatefulSet(cpContext component.WorkloadContext, sts *appsv1.StatefulSet) error {
+	return adaptStatefulSetForShard(cpContext, sts, "", false)
+}
+
+// adaptStatefulSetForShard adapts a StatefulSet for a specific etcd shard.
+// shardName specifies which shard this StatefulSet belongs to (e.g., "main", "events", "leases").
+// shardingEnabled indicates whether multi-shard mode is active.
+func adaptStatefulSetForShard(cpContext component.WorkloadContext, sts *appsv1.StatefulSet, shardName string, shardingEnabled bool) error {
 	hcp := cpContext.HCP
 	managedEtcdSpec := hcp.Spec.Etcd.Managed
+
+	// Update StatefulSet name for sharded deployments
+	if shardingEnabled {
+		sts.Name = formatShardName(shardName)
+	}
 
 	ipv4, err := util.IsIPv4CIDR(hcp.Spec.Networking.ClusterNetwork[0].CIDR.String())
 	if err != nil {
@@ -27,10 +39,12 @@ func adaptStatefulSet(cpContext component.WorkloadContext, sts *appsv1.StatefulS
 
 	util.UpdateContainer(ComponentName, sts.Spec.Template.Spec.Containers, func(c *corev1.Container) {
 		replicas := component.DefaultReplicas(hcp, &etcd{}, ComponentName)
+		discoveryServiceName := getDiscoveryServiceName(shardName, shardingEnabled)
 		var members []string
 		for i := range replicas {
-			name := fmt.Sprintf("etcd-%d", i)
-			members = append(members, fmt.Sprintf("%s=https://%s.etcd-discovery.%s.svc:2380", name, name, hcp.Namespace))
+			// Pod names within a shard: etcd-{shardName}-0, etcd-{shardName}-1, etc. (or etcd-0, etcd-1 for single shard)
+			podName := fmt.Sprintf("%s-%d", getShardName(shardName, shardingEnabled), i)
+			members = append(members, fmt.Sprintf("%s=https://%s.%s.%s.svc:2380", podName, podName, discoveryServiceName, hcp.Namespace))
 		}
 		c.Env = append(c.Env,
 			corev1.EnvVar{

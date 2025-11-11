@@ -2,6 +2,7 @@ package kas
 
 import (
 	"fmt"
+	"strings"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/cloud/aws"
@@ -40,6 +41,8 @@ type KubeAPIServerConfigParams struct {
 	CloudProvider                string
 	CloudProviderConfigRef       *corev1.LocalObjectReference
 	EtcdURL                      string
+	EtcdSharding                 *hyperv1.EtcdShardingSpec
+	EtcdNamespace                string
 	FeatureGates                 []string
 	NodePortRange                string
 	AuditWebhookEnabled          bool
@@ -84,7 +87,22 @@ func NewConfigParams(hcp *hyperv1.HostedControlPlane, featureGates []string) Kub
 			kasConfig.EtcdURL = hcp.Spec.Etcd.Unmanaged.Endpoint
 		}
 	case hyperv1.Managed:
-		kasConfig.EtcdURL = fmt.Sprintf("https://etcd-client.%s.svc:2379", hcp.Namespace)
+		// Check if etcd sharding is enabled
+		if hcp.Spec.Etcd.Managed != nil && hcp.Spec.Etcd.Managed.Sharding != nil && hcp.Spec.Etcd.Managed.Sharding.Enabled {
+			// Multi-shard configuration: build comma-separated list of all shard endpoints
+			var etcdURLs []string
+			for _, shard := range hcp.Spec.Etcd.Managed.Sharding.Shards {
+				url := fmt.Sprintf("https://etcd-%s-client.%s.svc:2379", shard.Name, hcp.Namespace)
+				etcdURLs = append(etcdURLs, url)
+			}
+			kasConfig.EtcdURL = strings.Join(etcdURLs, ",")
+			kasConfig.EtcdSharding = hcp.Spec.Etcd.Managed.Sharding
+			kasConfig.EtcdNamespace = hcp.Namespace
+		} else {
+			// Single etcd (backward compatible)
+			kasConfig.EtcdURL = fmt.Sprintf("https://etcd-client.%s.svc:2379", hcp.Namespace)
+			kasConfig.EtcdNamespace = hcp.Namespace
+		}
 	default:
 		kasConfig.EtcdURL = config.DefaultEtcdURL
 	}

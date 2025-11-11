@@ -3071,6 +3071,171 @@ spec:
                     description: managed specifies the behavior of an etcd cluster
                       managed by HyperShift.
                     properties:
+                      sharding:
+                        description: |-
+                          sharding specifies the configuration for etcd sharding across multiple etcd clusters.
+                          When specified, multiple etcd StatefulSets will be created, each serving as a separate shard.
+                          This enables horizontal scaling of etcd by distributing load across multiple independent clusters.
+                          The kube-apiserver will be configured to connect to all shards for high availability.
+                          This field is immutable once set.
+                        properties:
+                          enabled:
+                            default: false
+                            description: |-
+                              enabled determines whether etcd sharding is active for this hosted cluster.
+                              When enabled, Kubernetes resources will be distributed across multiple etcd deployments
+                              based on the shard configuration.
+                              This field is immutable after cluster creation.
+                            type: boolean
+                            x-kubernetes-validations:
+                            - message: enabled is immutable
+                              rule: self == oldSelf
+                          shards:
+                            description: |-
+                              shards defines the individual etcd shards and their resource mappings.
+                              Each shard represents an independent etcd cluster responsible for storing
+                              a specific set of Kubernetes resource kinds.
+                            items:
+                              description: EtcdShardSpec defines a single etcd shard
+                                and the resources it stores.
+                              properties:
+                                name:
+                                  description: |-
+                                    name is the unique identifier for this shard (e.g., "main", "events", "leases").
+                                    This name will be used in etcd resource naming and must be DNS-1035 compliant.
+                                  maxLength: 15
+                                  minLength: 1
+                                  pattern: ^[a-z]([-a-z0-9]*[a-z0-9])?$
+                                  type: string
+                                priority:
+                                  allOf:
+                                  - enum:
+                                    - Critical
+                                    - High
+                                    - Medium
+                                    - Low
+                                  - enum:
+                                    - Critical
+                                    - High
+                                    - Medium
+                                    - Low
+                                  default: Critical
+                                  description: |-
+                                    priority indicates the operational priority of this shard.
+                                    Higher priority shards receive preferential treatment during:
+                                    - Resource allocation
+                                    - Monitoring and alerting thresholds
+                                    - Backup schedules
+                                    Valid values: Critical (default resources), High, Medium (events), Low (ephemeral data)
+                                  type: string
+                                replicas:
+                                  default: 3
+                                  description: |-
+                                    replicas specifies the number of etcd replicas for this shard.
+                                    Must be 1 or 3. Defaults to matching the HostedCluster's control plane availability.
+                                    For high-churn shards (events, leases), a lower replica count may be acceptable.
+                                  enum:
+                                  - 1
+                                  - 3
+                                  format: int32
+                                  type: integer
+                                resourcePrefixes:
+                                  description: |-
+                                    resourcePrefixes specifies which Kubernetes resource kinds are stored in this shard.
+                                    Each prefix follows the format used by kube-apiserver's --etcd-servers-overrides flag.
+                                    Examples:
+                                      - "/events#" for Event resources
+                                      - "/coordination.k8s.io/leases#" for Lease resources
+                                      - "/deployments#" for Deployment resources
+                                    The special prefix "/" (default) matches all resources not explicitly assigned to other shards.
+                                    Exactly one shard must use the default "/" prefix to catch unmatched resources.
+                                  items:
+                                    type: string
+                                  maxItems: 100
+                                  minItems: 1
+                                  type: array
+                                  x-kubernetes-list-type: set
+                                storage:
+                                  description: |-
+                                    storage defines the storage configuration for this etcd shard.
+                                    If not specified, inherits from the parent ManagedEtcdSpec.Storage configuration.
+                                    This allows per-shard customization of storage class, size, etc.
+                                  properties:
+                                    persistentVolume:
+                                      description: |-
+                                        persistentVolume is the configuration for PersistentVolume etcd storage.
+                                        With this implementation, a PersistentVolume will be allocated for every
+                                        etcd member (either 1 or 3 depending on the HostedCluster control plane
+                                        availability configuration).
+                                      properties:
+                                        size:
+                                          anyOf:
+                                          - type: integer
+                                          - type: string
+                                          default: 8Gi
+                                          description: |-
+                                            size is the minimum size of the data volume for each etcd member.
+                                            Default is 8Gi.
+                                            This field is immutable
+                                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                          x-kubernetes-int-or-string: true
+                                          x-kubernetes-validations:
+                                          - message: Etcd PV storage size is immutable
+                                            rule: self == oldSelf
+                                        storageClassName:
+                                          description: |-
+                                            storageClassName is the StorageClass of the data volume for each etcd member.
+                                            See https://kubernetes.io/docs/concepts/storage/persistent-volumes#class-1.
+                                          maxLength: 255
+                                          type: string
+                                          x-kubernetes-validations:
+                                          - message: storageClassName is immutable
+                                            rule: self == oldSelf
+                                      type: object
+                                    restoreSnapshotURL:
+                                      description: |-
+                                        restoreSnapshotURL allows an optional URL to be provided where
+                                        an etcd snapshot can be downloaded, for example a pre-signed URL
+                                        referencing a storage service.
+                                        This snapshot will be restored on initial startup, only when the etcd PV
+                                        is empty.
+                                      items:
+                                        maxLength: 1024
+                                        type: string
+                                      maxItems: 1
+                                      type: array
+                                      x-kubernetes-list-type: set
+                                      x-kubernetes-validations:
+                                      - message: RestoreSnapshotURL shouldn't contain
+                                          more than 1 entry
+                                        rule: self.size() <= 1
+                                    type:
+                                      description: |-
+                                        type is the kind of persistent storage implementation to use for etcd.
+                                        Only PersistentVolume is supported at the moment.
+                                      enum:
+                                      - PersistentVolume
+                                      type: string
+                                  required:
+                                  - type
+                                  type: object
+                              required:
+                              - name
+                              - resourcePrefixes
+                              type: object
+                            maxItems: 10
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                        required:
+                        - enabled
+                        type: object
+                        x-kubernetes-validations:
+                        - message: At least one shard must be defined when sharding
+                            is enabled
+                          rule: 'self.enabled ? size(self.shards) > 0 : true'
                       storage:
                         description: storage specifies how etcd data is persisted.
                         properties:
@@ -3135,6 +3300,10 @@ spec:
                     required:
                     - storage
                     type: object
+                    x-kubernetes-validations:
+                    - message: sharding.shardCount is immutable once set
+                      rule: '!has(self.sharding) || !has(oldSelf.sharding) || self.sharding.shardCount
+                        == oldSelf.sharding.shardCount'
                   managementType:
                     description: |-
                       managementType defines how the etcd cluster is managed.

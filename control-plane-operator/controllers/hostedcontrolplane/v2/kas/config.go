@@ -211,6 +211,24 @@ func generateConfig(p KubeAPIServerConfigParams) (*kcpv1.KubeAPIServerConfig, er
 	args.Set("etcd-keyfile", cpath(etcdClientCertVolumeName, pki.EtcdClientKeyKey))
 	args.Set("etcd-prefix", "kubernetes.io")
 	args.Set("etcd-servers", p.EtcdURL)
+	// If etcd sharding is enabled, configure resource routing to dedicated shards
+	if p.EtcdSharding != nil && p.EtcdSharding.Enabled {
+		var overrides []string
+		for _, shard := range p.EtcdSharding.Shards {
+			shardURL := fmt.Sprintf("https://etcd-%s-client.%s.svc:2379", shard.Name, p.EtcdNamespace)
+			// For each resource prefix (except the default "/" which doesn't need an override)
+			for _, prefix := range shard.ResourcePrefixes {
+				if prefix != "/" {
+					// Format: /resource-prefix#shard-url
+					override := fmt.Sprintf("%s%s", prefix, shardURL)
+					overrides = append(overrides, override)
+				}
+			}
+		}
+		if len(overrides) > 0 {
+			args.Set("etcd-servers-overrides", overrides...)
+		}
+	}
 	args.Set("event-ttl", "3h")
 	// TODO remove in 4.16 once we're able to have different featuregates for hypershift
 	featureGates := append([]string{}, p.FeatureGates...)

@@ -1523,10 +1523,20 @@ type EtcdSpec struct {
 
 // ManagedEtcdSpec specifies the behavior of an etcd cluster managed by
 // HyperShift.
+// +kubebuilder:validation:XValidation:rule="!has(self.sharding) || !has(oldSelf.sharding) || self.sharding.shardCount == oldSelf.sharding.shardCount", message="sharding.shardCount is immutable once set"
 type ManagedEtcdSpec struct {
 	// storage specifies how etcd data is persisted.
 	// +required
 	Storage ManagedEtcdStorageSpec `json:"storage"`
+
+	// sharding specifies the configuration for etcd sharding across multiple etcd clusters.
+	// When specified, multiple etcd StatefulSets will be created, each serving as a separate shard.
+	// This enables horizontal scaling of etcd by distributing load across multiple independent clusters.
+	// The kube-apiserver will be configured to connect to all shards for high availability.
+	// This field is immutable once set.
+	// +optional
+	// +immutable
+	Sharding *EtcdShardingSpec `json:"sharding,omitempty"`
 }
 
 // ManagedEtcdStorageType is a storage type for an etcd cluster.
@@ -1594,6 +1604,96 @@ type PersistentVolumeEtcdStorageSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="Etcd PV storage size is immutable"
 	Size *resource.Quantity `json:"size,omitempty"`
 }
+
+// EtcdShardingSpec configures sharding of Kubernetes resources across multiple etcd clusters.
+// This enables horizontal scaling of etcd by partitioning resources by kind.
+// +kubebuilder:validation:XValidation:rule="self.enabled ? size(self.shards) > 0 : true",message="At least one shard must be defined when sharding is enabled"
+type EtcdShardingSpec struct {
+	// enabled determines whether etcd sharding is active for this hosted cluster.
+	// When enabled, Kubernetes resources will be distributed across multiple etcd deployments
+	// based on the shard configuration.
+	// This field is immutable after cluster creation.
+	// +kubebuilder:default=false
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="enabled is immutable"
+	// +immutable
+	// +required
+	Enabled bool `json:"enabled"`
+
+	// shards defines the individual etcd shards and their resource mappings.
+	// Each shard represents an independent etcd cluster responsible for storing
+	// a specific set of Kubernetes resource kinds.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=10
+	// +listType=map
+	// +listMapKey=name
+	Shards []EtcdShardSpec `json:"shards,omitempty"`
+}
+
+// EtcdShardSpec defines a single etcd shard and the resources it stores.
+type EtcdShardSpec struct {
+	// name is the unique identifier for this shard (e.g., "main", "events", "leases").
+	// This name will be used in etcd resource naming and must be DNS-1035 compliant.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=15
+	// +kubebuilder:validation:Pattern=`^[a-z]([-a-z0-9]*[a-z0-9])?$`
+	Name string `json:"name"`
+
+	// resourcePrefixes specifies which Kubernetes resource kinds are stored in this shard.
+	// Each prefix follows the format used by kube-apiserver's --etcd-servers-overrides flag.
+	// Examples:
+	//   - "/events#" for Event resources
+	//   - "/coordination.k8s.io/leases#" for Lease resources
+	//   - "/deployments#" for Deployment resources
+	// The special prefix "/" (default) matches all resources not explicitly assigned to other shards.
+	// Exactly one shard must use the default "/" prefix to catch unmatched resources.
+	// +required
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100
+	// +listType=set
+	ResourcePrefixes []string `json:"resourcePrefixes"`
+
+	// storage defines the storage configuration for this etcd shard.
+	// If not specified, inherits from the parent ManagedEtcdSpec.Storage configuration.
+	// This allows per-shard customization of storage class, size, etc.
+	// +optional
+	Storage *ManagedEtcdStorageSpec `json:"storage,omitempty"`
+
+	// replicas specifies the number of etcd replicas for this shard.
+	// Must be 1 or 3. Defaults to matching the HostedCluster's control plane availability.
+	// For high-churn shards (events, leases), a lower replica count may be acceptable.
+	// +optional
+	// +kubebuilder:validation:Enum=1;3
+	// +kubebuilder:default=3
+	Replicas *int32 `json:"replicas,omitempty"`
+
+	// priority indicates the operational priority of this shard.
+	// Higher priority shards receive preferential treatment during:
+	// - Resource allocation
+	// - Monitoring and alerting thresholds
+	// - Backup schedules
+	// Valid values: Critical (default resources), High, Medium (events), Low (ephemeral data)
+	// +optional
+	// +kubebuilder:validation:Enum=Critical;High;Medium;Low
+	// +kubebuilder:default=Critical
+	Priority EtcdShardPriority `json:"priority,omitempty"`
+}
+
+// EtcdShardPriority defines the operational priority of an etcd shard.
+// +kubebuilder:validation:Enum=Critical;High;Medium;Low
+type EtcdShardPriority string
+
+const (
+	// EtcdShardPriorityCritical for core cluster resources (pods, services, configmaps, secrets, etc.)
+	EtcdShardPriorityCritical EtcdShardPriority = "Critical"
+	// EtcdShardPriorityHigh for important but less critical resources
+	EtcdShardPriorityHigh EtcdShardPriority = "High"
+	// EtcdShardPriorityMedium for high-volume resources like events
+	EtcdShardPriorityMedium EtcdShardPriority = "Medium"
+	// EtcdShardPriorityLow for ephemeral resources like leases
+	EtcdShardPriorityLow EtcdShardPriority = "Low"
+)
 
 // UnmanagedEtcdSpec specifies configuration which enables the control plane to
 // integrate with an eternally managed etcd cluster.
