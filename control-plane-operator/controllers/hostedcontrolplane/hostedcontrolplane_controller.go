@@ -465,24 +465,11 @@ func (r *HostedControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.R
 		switch hostedControlPlane.Spec.Etcd.ManagementType {
 		case hyperv1.Managed:
 			r.Log.Info("Reconciling etcd cluster status for managed strategy")
-			sts := manifests.EtcdStatefulSet(hostedControlPlane.Namespace)
-			if err := r.Get(ctx, client.ObjectKeyFromObject(sts), sts); err != nil {
-				if apierrors.IsNotFound(err) {
-					newCondition = metav1.Condition{
-						Type:   string(hyperv1.EtcdAvailable),
-						Status: metav1.ConditionFalse,
-						Reason: hyperv1.EtcdStatefulSetNotFoundReason,
-					}
-				} else {
-					return ctrl.Result{}, fmt.Errorf("failed to fetch etcd statefulset %s/%s: %w", sts.Namespace, sts.Name, err)
-				}
-			} else {
-				conditionPtr, err := r.etcdStatefulSetCondition(ctx, sts)
-				if err != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to get etcd statefulset status: %w", err)
-				}
-				newCondition = *conditionPtr
+			conditionPtr, err := r.etcdShardsCondition(ctx, hostedControlPlane)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to get etcd shards status: %w", err)
 			}
+			newCondition = *conditionPtr
 		case hyperv1.Unmanaged:
 			r.Log.Info("Assuming Etcd cluster is running in unmanaged etcd strategy")
 			newCondition = metav1.Condition{
@@ -1794,7 +1781,7 @@ func (r *HostedControlPlaneReconciler) reconcilePKI(ctx context.Context, hcp *hy
 	// Etcd server secret
 	etcdServerSecret := manifests.EtcdServerSecret(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r, etcdServerSecret, func() error {
-		return pki.ReconcileEtcdServerSecret(etcdServerSecret, etcdSignerSecret, p.OwnerRef)
+		return pki.ReconcileEtcdServerSecret(etcdServerSecret, etcdSignerSecret, p.OwnerRef, hcp)
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile etcd server secret: %w", err)
 	}
@@ -1802,7 +1789,7 @@ func (r *HostedControlPlaneReconciler) reconcilePKI(ctx context.Context, hcp *hy
 	// Etcd peer secret
 	etcdPeerSecret := manifests.EtcdPeerSecret(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r, etcdPeerSecret, func() error {
-		return pki.ReconcileEtcdPeerSecret(etcdPeerSecret, etcdSignerSecret, p.OwnerRef)
+		return pki.ReconcileEtcdPeerSecret(etcdPeerSecret, etcdSignerSecret, p.OwnerRef, hcp)
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile etcd peer secret: %w", err)
 	}
@@ -2730,6 +2717,111 @@ func (r *HostedControlPlaneReconciler) etcdRestoredCondition(ctx context.Context
 		}
 	}
 	return nil
+}
+
+// etcdShardsCondition checks the readiness of all etcd shards (both sharded and non-sharded configurations)
+func (r *HostedControlPlaneReconciler) etcdShardsCondition(ctx context.Context, hcp *hyperv1.HostedControlPlane) (*metav1.Condition, error) {
+	// Determine effective shards (1 for non-sharded, N for sharded)
+	shards := etcdv2.GetEffectiveShards(hcp)
+	if len(shards) == 0 {
+		return &metav1.Condition{
+			Type:    string(hyperv1.EtcdAvailable),
+			Status:  metav1.ConditionFalse,
+			Reason:  "NoShardsConfigured",
+			Message: "No etcd shards are configured",
+		}, nil
+	}
+
+	// Track readiness status across all shards
+	totalReplicas := int32(0)
+	readyReplicas := int32(0)
+	var notReadyShards []string
+	var messages []string
+
+	for _, shard := range shards {
+		shardName := etcdv2.GetShardName(shard.Name, etcdv2.IsShardingEnabled(hcp))
+
+		// Get the StatefulSet for this shard
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      shardName,
+				Namespace: hcp.Namespace,
+			},
+		}
+
+		if err := r.Get(ctx, client.ObjectKeyFromObject(sts), sts); err != nil {
+			if apierrors.IsNotFound(err) {
+				notReadyShards = append(notReadyShards, shardName)
+				messages = append(messages, fmt.Sprintf("Shard %s StatefulSet not found", shardName))
+				continue
+			}
+			return nil, fmt.Errorf("failed to get StatefulSet for shard %s: %w", shardName, err)
+		}
+
+		// Check shard readiness
+		if sts.Spec.Replicas != nil {
+			totalReplicas += *sts.Spec.Replicas
+			readyReplicas += sts.Status.ReadyReplicas
+
+			// Check if this shard has quorum
+			if sts.Status.ReadyReplicas < *sts.Spec.Replicas/2+1 {
+				notReadyShards = append(notReadyShards, shardName)
+
+				// Check for PVC issues
+				pvcMessage := r.checkShardPVCs(ctx, sts)
+				if pvcMessage != "" {
+					messages = append(messages, fmt.Sprintf("Shard %s: %s", shardName, pvcMessage))
+				} else {
+					messages = append(messages, fmt.Sprintf("Shard %s waiting for quorum (%d/%d ready)", shardName, sts.Status.ReadyReplicas, *sts.Spec.Replicas))
+				}
+			}
+		}
+	}
+
+	// All shards have quorum - etcd is available
+	if len(notReadyShards) == 0 {
+		return &metav1.Condition{
+			Type:    string(hyperv1.EtcdAvailable),
+			Status:  metav1.ConditionTrue,
+			Reason:  hyperv1.EtcdQuorumAvailableReason,
+			Message: fmt.Sprintf("All %d etcd shard(s) have quorum (%d/%d replicas ready)", len(shards), readyReplicas, totalReplicas),
+		}, nil
+	}
+
+	// Some shards are not ready
+	message := strings.Join(messages, "; ")
+	if message == "" {
+		message = fmt.Sprintf("Waiting for %d shard(s) to reach quorum: %s", len(notReadyShards), strings.Join(notReadyShards, ", "))
+	}
+
+	return &metav1.Condition{
+		Type:    string(hyperv1.EtcdAvailable),
+		Status:  metav1.ConditionFalse,
+		Reason:  hyperv1.EtcdWaitingForQuorumReason,
+		Message: message,
+	}, nil
+}
+
+// checkShardPVCs checks if there are any PVC issues for the given StatefulSet
+func (r *HostedControlPlaneReconciler) checkShardPVCs(ctx context.Context, sts *appsv1.StatefulSet) string {
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	if err := r.List(ctx, pvcList, &client.ListOptions{
+		Namespace:     sts.Namespace,
+		LabelSelector: labels.SelectorFromValidatedSet(labels.Set{"app": "etcd"}),
+	}); err != nil {
+		return ""
+	}
+
+	messageCollector := events.NewMessageCollector(ctx, r.Client)
+	for _, pvc := range pvcList.Items {
+		if pvc.Status.Phase != corev1.ClaimBound {
+			eventMessages, err := messageCollector.ErrorMessages(&pvc)
+			if err == nil && len(eventMessages) > 0 {
+				return fmt.Sprintf("Volume claim %s pending: %s", pvc.Name, strings.Join(eventMessages, "; "))
+			}
+		}
+	}
+	return ""
 }
 
 func (r *HostedControlPlaneReconciler) etcdStatefulSetCondition(ctx context.Context, sts *appsv1.StatefulSet) (*metav1.Condition, error) {

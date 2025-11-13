@@ -2321,9 +2321,6 @@ spec:
                               based on the shard configuration.
                               This field is immutable after cluster creation.
                             type: boolean
-                            x-kubernetes-validations:
-                            - message: enabled is immutable
-                              rule: self == oldSelf
                           shards:
                             description: |-
                               shards defines the individual etcd shards and their resource mappings.
@@ -2534,10 +2531,6 @@ spec:
                     required:
                     - storage
                     type: object
-                    x-kubernetes-validations:
-                    - message: sharding.shardCount is immutable once set
-                      rule: '!has(self.sharding) || !has(oldSelf.sharding) || self.sharding.shardCount
-                        == oldSelf.sharding.shardCount'
                   managementType:
                     description: |-
                       managementType defines how the etcd cluster is managed.

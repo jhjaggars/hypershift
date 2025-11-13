@@ -1523,7 +1523,6 @@ type EtcdSpec struct {
 
 // ManagedEtcdSpec specifies the behavior of an etcd cluster managed by
 // HyperShift.
-// +kubebuilder:validation:XValidation:rule="!has(self.sharding) || !has(oldSelf.sharding) || self.sharding.shardCount == oldSelf.sharding.shardCount", message="sharding.shardCount is immutable once set"
 type ManagedEtcdSpec struct {
 	// storage specifies how etcd data is persisted.
 	// +required
@@ -1614,8 +1613,6 @@ type EtcdShardingSpec struct {
 	// based on the shard configuration.
 	// This field is immutable after cluster creation.
 	// +kubebuilder:default=false
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="enabled is immutable"
-	// +immutable
 	// +required
 	Enabled bool `json:"enabled"`
 
