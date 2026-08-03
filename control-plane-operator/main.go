@@ -25,6 +25,7 @@ import (
 	"github.com/openshift/hypershift/dnsresolver"
 	etcdbackup "github.com/openshift/hypershift/etcd-backup"
 	etcddefrag "github.com/openshift/hypershift/etcd-defrag"
+	etcdrouteproxy "github.com/openshift/hypershift/etcd-route-proxy"
 	etcdupload "github.com/openshift/hypershift/etcd-upload"
 	ignitionserver "github.com/openshift/hypershift/ignition-server/cmd"
 	kasbootstrap "github.com/openshift/hypershift/kas-bootstrap"
@@ -115,6 +116,8 @@ func commandFor(name string) *cobra.Command {
 		cmd = tokenminter.NewStartCommand()
 	case "etcd-defrag-controller":
 		cmd = etcddefrag.NewStartCommand()
+	case "etcd-route-proxy":
+		cmd = etcdrouteproxy.NewStartCommand()
 	case "etcd-upload":
 		cmd = etcdupload.NewStartCommand()
 	case "sync-fg-configmap":
@@ -174,6 +177,7 @@ func defaultCommand() *cobra.Command {
 	cmd.AddCommand(tokenminter.NewStartCommand())
 	cmd.AddCommand(ignitionserver.NewStartCommand())
 	cmd.AddCommand(etcddefrag.NewStartCommand())
+	cmd.AddCommand(etcdrouteproxy.NewStartCommand())
 	cmd.AddCommand(kubernetesdefaultproxy.NewStartCommand())
 	cmd.AddCommand(dnsresolver.NewCommand())
 	cmd.AddCommand(etcdbackup.NewStartCommand())
