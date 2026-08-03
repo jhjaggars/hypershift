@@ -155,9 +155,57 @@ func TestResourcePrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resourcePrefix(tt.resource)
+			got := ShardResourcePrefix(tt.resource)
 			if got != tt.want {
 				t.Errorf("resourcePrefix()=%q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsETCDLeaseResource(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource hyperv1.EtcdShardResource
+		want     bool
+	}{
+		{
+			name:     "When resource is core events, it should return true",
+			resource: hyperv1.EtcdShardResource{Resource: "events"},
+			want:     true,
+		},
+		{
+			name:     "When resource is core events with empty string APIGroup, it should return true",
+			resource: hyperv1.EtcdShardResource{APIGroup: ptr.To(""), Resource: "events"},
+			want:     true,
+		},
+		{
+			name:     "When resource is events.k8s.io events, it should return true",
+			resource: hyperv1.EtcdShardResource{APIGroup: ptr.To("events.k8s.io"), Resource: "events"},
+			want:     true,
+		},
+		{
+			name:     "When resource is coordination.k8s.io leases, it should return false",
+			resource: hyperv1.EtcdShardResource{APIGroup: ptr.To("coordination.k8s.io"), Resource: "leases"},
+			want:     false,
+		},
+		{
+			name:     "When resource is core pods, it should return false",
+			resource: hyperv1.EtcdShardResource{APIGroup: ptr.To(""), Resource: "pods"},
+			want:     false,
+		},
+		{
+			name:     "When resource is a CRD group, it should return false",
+			resource: hyperv1.EtcdShardResource{APIGroup: ptr.To("widgets.example.com"), Resource: "widgets"},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsETCDLeaseResource(tt.resource)
+			if got != tt.want {
+				t.Errorf("IsETCDLeaseResource()=%v, want %v", got, tt.want)
 			}
 		})
 	}

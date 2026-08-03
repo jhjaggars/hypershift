@@ -52,7 +52,7 @@ func EffectiveShards(managed *hyperv1.ManagedEtcdSpec) []ManagedEffectiveShard {
 	for _, s := range managed.Shards {
 		var prefixes []string
 		for _, r := range s.Resources {
-			prefixes = append(prefixes, resourcePrefix(r))
+			prefixes = append(prefixes, ShardResourcePrefix(r))
 		}
 		shards = append(shards, ManagedEffectiveShard{
 			Name:             fmt.Sprintf("etcd-%s", s.Name),
@@ -93,7 +93,7 @@ func UnmanagedEffectiveShards(unmanaged *hyperv1.UnmanagedEtcdSpec) []UnmanagedE
 	for _, s := range unmanaged.Shards {
 		var prefixes []string
 		for _, r := range s.Resources {
-			prefixes = append(prefixes, resourcePrefix(r))
+			prefixes = append(prefixes, ShardResourcePrefix(r))
 		}
 		shards = append(shards, UnmanagedEffectiveShard{
 			Name:             fmt.Sprintf("etcd-%s", s.Name),
@@ -106,9 +106,35 @@ func UnmanagedEffectiveShards(unmanaged *hyperv1.UnmanagedEtcdSpec) []UnmanagedE
 	return shards
 }
 
-// resourcePrefix converts an EtcdShardResource to the format expected by
+// IsETCDLeaseResource returns true if the given resource uses etcd leases for
+// TTL-based expiration. These resources must be routed via KAS's
+// --etcd-servers-overrides (which gives each resource its own etcd client)
+// rather than through the etcd-route-proxy, because the proxy cannot
+// correctly route LeaseGrant calls (which have no key) to the shard that
+// will later receive the Put.
+//
+// Currently only core Events and events.k8s.io Events use etcd leases.
+// Coordination leases (coordination.k8s.io/leases) do NOT use etcd leases
+// despite the name — they manage expiration at the Kubernetes API level.
+func IsETCDLeaseResource(r hyperv1.EtcdShardResource) bool {
+	group := ""
+	if r.APIGroup != nil {
+		group = *r.APIGroup
+	}
+	// Core events (v1 Events) use TTLFunc → leaseManager → etcd Lease.Grant
+	if group == "" && r.Resource == "events" {
+		return true
+	}
+	// events.k8s.io Events also use TTLFunc
+	if group == "events.k8s.io" && r.Resource == "events" {
+		return true
+	}
+	return false
+}
+
+// ShardResourcePrefix converts an EtcdShardResource to the format expected by
 // --etcd-servers-overrides: "group/resource".
-func resourcePrefix(r hyperv1.EtcdShardResource) string {
+func ShardResourcePrefix(r hyperv1.EtcdShardResource) string {
 	if r.APIGroup == nil || *r.APIGroup == "" {
 		return fmt.Sprintf("/%s", r.Resource)
 	}

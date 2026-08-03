@@ -40,6 +40,12 @@ for the etcd endpoint from kube-apiserver's perspective.`,
 	cmd.Flags().StringVar(&opts.trustedCAFile, "trusted-ca-file", "",
 		"Path to the CA certificate for verifying client and backend connections (etcd-compatible)")
 
+	// Client TLS for backend connections (when different from serving cert).
+	cmd.Flags().StringVar(&opts.clientCertFile, "client-cert-file", "",
+		"Path to the TLS certificate for connecting to backend etcd instances (defaults to --cert-file)")
+	cmd.Flags().StringVar(&opts.clientKeyFile, "client-key-file", "",
+		"Path to the TLS key for connecting to backend etcd instances (defaults to --key-file)")
+
 	// Proxy-specific flags.
 	cmd.Flags().StringVar(&opts.routingConfig, "routing-config", "",
 		"Path to the routing configuration YAML file (required)")
@@ -68,6 +74,8 @@ type options struct {
 	certFile         string
 	keyFile          string
 	trustedCAFile    string
+	clientCertFile   string
+	clientKeyFile    string
 	routingConfig    string
 }
 
@@ -95,12 +103,24 @@ func (o *options) run() error {
 	// Parse listen URLs.
 	listenURLs := strings.Split(o.listenClientURLs, ",")
 
+	// Resolve client cert/key: default to serving cert if not specified.
+	clientCertFile := o.clientCertFile
+	if clientCertFile == "" {
+		clientCertFile = o.certFile
+	}
+	clientKeyFile := o.clientKeyFile
+	if clientKeyFile == "" {
+		clientKeyFile = o.keyFile
+	}
+
 	// Create server.
 	serverCfg := &ServerConfig{
-		ListenClientURLs: listenURLs,
-		CertFile:         o.certFile,
-		KeyFile:          o.keyFile,
-		TrustedCAFile:    o.trustedCAFile,
+		ListenClientURLs:  listenURLs,
+		CertFile:          o.certFile,
+		KeyFile:           o.keyFile,
+		TrustedCAFile:     o.trustedCAFile,
+		ClientCertFile:    clientCertFile,
+		ClientKeyFile:     clientKeyFile,
 	}
 
 	srv, err := NewServer(serverCfg, routingCfg, logger)

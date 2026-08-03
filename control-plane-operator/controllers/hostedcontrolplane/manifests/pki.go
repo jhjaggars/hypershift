@@ -202,6 +202,10 @@ func EtcdPeerSecret(ns string) *corev1.Secret {
 	return secretFor(ns, "etcd-peer-tls")
 }
 
+func EtcdRouteProxyServerSecret(ns string) *corev1.Secret {
+	return secretFor(ns, "etcd-route-proxy-server-tls")
+}
+
 func EtcdShardServerSecret(ns, shardName string) *corev1.Secret {
 	return secretFor(ns, fmt.Sprintf("%s-server-tls", shardName))
 }

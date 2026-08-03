@@ -585,6 +585,7 @@ staticcheck: $(STATICCHECK)
 		./konnectivity-socks5-proxy/... \
 		./contrib/... \
 		./availability-prober/... \
+		./etcd-route-proxy/... \
 		./test/integration/... \
 
 # Build the docker image with official golang image

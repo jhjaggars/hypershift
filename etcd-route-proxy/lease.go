@@ -58,9 +58,7 @@ func (p *leaseProxy) LeaseRevoke(ctx context.Context, r *pb.LeaseRevokeRequest) 
 	if err != nil {
 		return nil, err
 	}
-	return &pb.LeaseRevokeResponse{
-		Header: resp.ResponseHeader,
-	}, nil
+	return (*pb.LeaseRevokeResponse)(resp), nil
 }
 
 func (p *leaseProxy) LeaseTimeToLive(ctx context.Context, r *pb.LeaseTimeToLiveRequest) (*pb.LeaseTimeToLiveResponse, error) {

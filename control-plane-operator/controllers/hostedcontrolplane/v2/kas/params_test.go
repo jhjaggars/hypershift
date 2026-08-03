@@ -249,10 +249,12 @@ func TestNewConfigParams(t *testing.T) {
 			expected: func(hcp *hyperv1.HostedControlPlane, featureGates []string) KubeAPIServerConfigParams {
 				params := defaultKubeAPIServerConfigParams()
 				params.FeatureGates = featureGates
-				params.EtcdURL = "https://etcd-client.test-namespace.svc:2379"
+				// Events use --etcd-servers-overrides (TTL-bearing, needs per-shard lease).
+				// Leases route through the proxy (no etcd leases needed).
+				// EtcdURL points at the proxy because proxy-routable shards exist.
+				params.EtcdURL = "https://etcd-route-proxy.test-namespace.svc:2379"
 				params.EtcdServersOverrides = []string{
 					"/events#https://etcd-client-events.test-namespace.svc:2379",
-					"coordination.k8s.io/leases#https://etcd-client-leases.test-namespace.svc:2379",
 				}
 				return params
 			},

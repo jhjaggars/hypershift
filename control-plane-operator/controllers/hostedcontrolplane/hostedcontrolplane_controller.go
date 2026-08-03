@@ -46,6 +46,7 @@ import (
 	dnsoperatorv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/dnsoperator"
 	endpointresolverv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/endpoint_resolver"
 	etcdv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/etcd"
+	etcdrouteproxyv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/etcdrouteproxy"
 	fgv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/fg"
 	ignitionserverv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/ignitionserver"
 	ignitionproxyv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/ignitionserver_proxy"
@@ -251,6 +252,10 @@ func (r *HostedControlPlaneReconciler) registerComponents(hcp *hyperv1.HostedCon
 			r.components = append(r.components, etcdv2.NewShardComponent(shard))
 		}
 	}
+
+	// Register etcd-route-proxy for CRD and non-TTL resource sharding.
+	// The component's own predicate checks whether any proxy-routable shards exist.
+	r.components = append(r.components, etcdrouteproxyv2.NewComponent())
 
 	r.components = append(r.components,
 		fgv2.NewComponent(),
@@ -1422,6 +1427,17 @@ func (r *HostedControlPlaneReconciler) reconcileEtcdCerts(ctx context.Context, h
 		return pki.ReconcileEtcdMetricsClientSecret(etcdMetricsClientSecret, etcdMetricsSignerSecret, p.OwnerRef)
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile etcd client secret: %w", err)
+	}
+
+	// Reconcile etcd-route-proxy server TLS secret.
+	// The proxy needs its own serving cert with SANs for its service name.
+	if hcp.Spec.Etcd.ManagementType == hyperv1.Managed && hcp.Spec.Etcd.Managed != nil {
+		proxyServerSecret := manifests.EtcdRouteProxyServerSecret(hcp.Namespace)
+		if _, err := createOrUpdate(ctx, r, proxyServerSecret, func() error {
+			return pki.ReconcileEtcdRouteProxyServerSecret(proxyServerSecret, etcdSignerSecret, p.OwnerRef)
+		}); err != nil {
+			return fmt.Errorf("failed to reconcile etcd-route-proxy server secret: %w", err)
+		}
 	}
 
 	// Reconcile per-shard server and peer TLS secrets.

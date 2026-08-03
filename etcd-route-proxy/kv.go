@@ -229,7 +229,7 @@ func requestOpToOp(union *pb.RequestOp) clientv3.Op {
 			thenOps := make([]clientv3.Op, len(tv.RequestTxn.Success))
 			elseOps := make([]clientv3.Op, len(tv.RequestTxn.Failure))
 			for j := range tv.RequestTxn.Compare {
-				cmps[j] = clientv3.FromCompare(*tv.RequestTxn.Compare[j])
+				cmps[j] = clientv3.Cmp(*tv.RequestTxn.Compare[j])
 			}
 			for j := range tv.RequestTxn.Success {
 				thenOps[j] = requestOpToOp(tv.RequestTxn.Success[j])

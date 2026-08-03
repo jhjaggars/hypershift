@@ -1,6 +1,7 @@
 package etcdrouteproxy
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -10,7 +11,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -34,14 +34,18 @@ type ServerConfig struct {
 	// TrustedCAFile is the CA used to verify client connections (if mTLS is desired)
 	// and to connect to backend etcd instances.
 	TrustedCAFile string
+	// ClientCertFile is the TLS certificate for connecting to backend etcd instances.
+	ClientCertFile string
+	// ClientKeyFile is the TLS key for connecting to backend etcd instances.
+	ClientKeyFile string
 }
 
 // NewServer creates a new proxy server.
 func NewServer(cfg *ServerConfig, routingCfg *Config, logger *zap.Logger) (*Server, error) {
 	// Build TLS config for backend connections (client TLS).
 	backendTLS := &TLSConfig{
-		CertFile:      cfg.CertFile,
-		KeyFile:       cfg.KeyFile,
+		CertFile:      cfg.ClientCertFile,
+		KeyFile:       cfg.ClientKeyFile,
 		TrustedCAFile: cfg.TrustedCAFile,
 	}
 
@@ -73,9 +77,7 @@ func NewServer(cfg *ServerConfig, routingCfg *Config, logger *zap.Logger) (*Serv
 	pb.RegisterMaintenanceServer(grpcServer, newMaintenanceProxy(router, logger.Named("maintenance")))
 
 	// Register gRPC health service (used by etcd client health checks).
-	hsrv := health.NewServer()
-	healthpb.RegisterHealthServer(grpcServer, hsrv)
-	hsrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(grpcServer, &simpleHealthServer{})
 
 	return &Server{
 		grpcServer: grpcServer,
@@ -128,4 +130,21 @@ func (s *Server) Stop() {
 	if err := s.router.Close(); err != nil {
 		s.logger.Error("error closing router", zap.Error(err))
 	}
+}
+
+// simpleHealthServer always reports SERVING status.
+type simpleHealthServer struct {
+	healthpb.UnimplementedHealthServer
+}
+
+func (s *simpleHealthServer) Check(ctx context.Context, req *healthpb.HealthCheckRequest) (*healthpb.HealthCheckResponse, error) {
+	return &healthpb.HealthCheckResponse{
+		Status: healthpb.HealthCheckResponse_SERVING,
+	}, nil
+}
+
+func (s *simpleHealthServer) Watch(req *healthpb.HealthCheckRequest, stream healthpb.Health_WatchServer) error {
+	return stream.Send(&healthpb.HealthCheckResponse{
+		Status: healthpb.HealthCheckResponse_SERVING,
+	})
 }

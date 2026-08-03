@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd-route-proxy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: etcd-route-proxy
+  template:
+    metadata:
+      labels:
+        app: etcd-route-proxy
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: etcd-route-proxy
+        image: controlplane-operator
+        command:
+        - control-plane-operator
+        - etcd-route-proxy
+        ports:
+        - name: client
+          containerPort: 2379
+          protocol: TCP
+        readinessProbe:
+          tcpSocket:
+            port: 2379
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 2379
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - name: routing-config
+          mountPath: /etc/etcd-route-proxy
+          readOnly: true
+        - name: server-tls
+          mountPath: /etc/etcd/tls/server
+          readOnly: true
+        - name: etcd-client-tls
+          mountPath: /etc/etcd/tls/client
+          readOnly: true
+        - name: etcd-ca
+          mountPath: /etc/etcd/tls/ca
+          readOnly: true
+      volumes:
+      - name: routing-config
+        configMap:
+          name: etcd-route-proxy-config
+      - name: server-tls
+        secret:
+          secretName: etcd-route-proxy-server-tls
+      - name: etcd-client-tls
+        secret:
+          secretName: etcd-client-tls
+      - name: etcd-ca
+        configMap:
+          name: etcd-ca

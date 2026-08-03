@@ -69,6 +69,17 @@ func ReconcileEtcdShardServerSecret(secret, ca *corev1.Secret, ownerRef config.O
 	return reconcileSignedCertWithKeysAndAddresses(secret, ca, ownerRef, "etcd-server", []string{"kubernetes"}, X509UsageClientServerAuth, EtcdServerCrtKey, EtcdServerKeyKey, "", dnsNames, nil, "")
 }
 
+func ReconcileEtcdRouteProxyServerSecret(secret, ca *corev1.Secret, ownerRef config.OwnerRef) error {
+	dnsNames := []string{
+		fmt.Sprintf("etcd-route-proxy.%s.svc", secret.Namespace),
+		fmt.Sprintf("etcd-route-proxy.%s.svc.cluster.local", secret.Namespace),
+		"etcd-route-proxy",
+		"localhost",
+	}
+
+	return reconcileSignedCertWithKeysAndAddresses(secret, ca, ownerRef, "etcd-route-proxy", []string{"kubernetes"}, X509UsageClientServerAuth, EtcdServerCrtKey, EtcdServerKeyKey, "", dnsNames, nil, "")
+}
+
 func ReconcileEtcdShardPeerSecret(secret, ca *corev1.Secret, ownerRef config.OwnerRef, shardName string) error {
 	discoveryService := etcdutil.DiscoveryServiceName(shardName)
 	dnsNames := []string{

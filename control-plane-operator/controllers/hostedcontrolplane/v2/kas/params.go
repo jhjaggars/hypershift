@@ -99,15 +99,27 @@ func NewConfigParams(hcp *hyperv1.HostedControlPlane, featureGates []string) Kub
 	case hyperv1.Managed:
 		kasConfig.EtcdURL = fmt.Sprintf("https://etcd-client.%s.svc:2379", hcp.Namespace)
 		if hcp.Spec.Etcd.Managed != nil {
-			for _, shard := range etcdutil.EffectiveShards(hcp.Spec.Etcd.Managed) {
-				if shard.IsDefault {
-					continue
+			hasProxyRoutes := false
+			for _, shard := range hcp.Spec.Etcd.Managed.Shards {
+				shardName := fmt.Sprintf("etcd-%s", shard.Name)
+				shardEndpoint := fmt.Sprintf("https://%s.%s.svc:2379", etcdutil.ClientServiceName(shardName), hcp.Namespace)
+				for _, r := range shard.Resources {
+					prefix := etcdutil.ShardResourcePrefix(r)
+					if etcdutil.IsETCDLeaseResource(r) {
+						// TTL-bearing resources (events) must use --etcd-servers-overrides
+						// so KAS creates a per-shard etcd client. This ensures LeaseGrant
+						// calls go to the same backend as the subsequent Put.
+						kasConfig.EtcdServersOverrides = append(kasConfig.EtcdServersOverrides,
+							fmt.Sprintf("%s#%s", prefix, shardEndpoint))
+					} else {
+						hasProxyRoutes = true
+					}
 				}
-				shardEndpoint := fmt.Sprintf("https://%s.%s.svc:2379", etcdutil.ClientServiceName(shard.Name), hcp.Namespace)
-				for _, prefix := range shard.ResourcePrefixes {
-					kasConfig.EtcdServersOverrides = append(kasConfig.EtcdServersOverrides,
-						fmt.Sprintf("%s#%s", prefix, shardEndpoint))
-				}
+			}
+			// When any non-TTL resources are sharded, point KAS at the
+			// etcd-route-proxy instead of directly at etcd-client.
+			if hasProxyRoutes {
+				kasConfig.EtcdURL = fmt.Sprintf("https://etcd-route-proxy.%s.svc:2379", hcp.Namespace)
 			}
 		}
 	default:

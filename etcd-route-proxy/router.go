@@ -85,16 +85,21 @@ func NewRouter(cfg *Config, tlsCfg *TLSConfig, logger *zap.Logger) (*Router, err
 
 // Route returns the etcd client for the given key.
 func (r *Router) Route(key []byte) *clientv3.Client {
-	keyStr := string(key)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.clients[r.routeToEndpoint(key)]
+}
 
+// routeToEndpoint returns the endpoint URL that the given key should be
+// routed to, based on prefix matching against the route table.
+func (r *Router) routeToEndpoint(key []byte) string {
+	keyStr := string(key)
 	for prefix, ep := range r.table.prefixToBackend {
 		if strings.HasPrefix(keyStr, prefix) {
-			return r.clients[ep]
+			return ep
 		}
 	}
-	return r.clients[r.table.defaultBackend]
+	return r.table.defaultBackend
 }
 
 // DefaultClient returns the client for the default backend.

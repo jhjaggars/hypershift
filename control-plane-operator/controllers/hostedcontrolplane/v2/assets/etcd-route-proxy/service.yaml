@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-route-proxy
+  labels:
+    app: etcd-route-proxy
+spec:
+  type: ClusterIP
+  ports:
+  - name: etcd-client
+    port: 2379
+    protocol: TCP
+    targetPort: client
+  selector:
+    app: etcd-route-proxy
